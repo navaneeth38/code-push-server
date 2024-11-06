@@ -37,6 +37,14 @@ import {
   UpdateMetrics,
 } from "../script/types";
 
+import {
+  fileDoesNotExistOrIsDirectory,
+  getAndroidHermesEnabled,
+  getiOSHermesEnabled,
+  runHermesEmitBinaryCommand
+} from "./react-native-utils";
+
+
 const configFilePath: string = path.join(process.env.LOCALAPPDATA || process.env.HOME, ".code-push.config");
 const emailValidator = require("email-validator");
 const packageJson = require("../../package.json");
@@ -548,14 +556,6 @@ export function execute(command: cli.ICommand) {
         throw new Error("Invalid command:  " + JSON.stringify(command));
     }
   });
-}
-
-function fileDoesNotExistOrIsDirectory(filePath: string): boolean {
-  try {
-    return fs.lstatSync(filePath).isDirectory();
-  } catch (error) {
-    return true;
-  }
 }
 
 function getTotalActiveFromDeploymentMetrics(metrics: DeploymentMetrics): number {
@@ -1307,6 +1307,22 @@ export const releaseReact = (command: cli.IReleaseReactCommand): Promise<void> =
           command.sourcemapOutput
         )
       )
+     .then(async () => {
+        const isHermesEnabled =
+        command.useHermes ||
+        (platform === "android" && (await getAndroidHermesEnabled(command.gradleFile))) || // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in build.gradle and we're releasing an Android build
+        (platform === "ios" && (await getiOSHermesEnabled(command.podFile))); // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in Podfile and we're releasing an iOS build
+        if (isHermesEnabled) {
+          log(chalk.cyan("\nRunning hermes compiler...\n"));
+          await runHermesEmitBinaryCommand(
+            bundleName,
+            outputFolder,
+            command.sourcemapOutput,
+            command.extraHermesFlags,
+            command.gradleFile
+          );
+        }
+      })
       .then(() => {
         log(chalk.cyan("\nReleasing update contents to CodePush:\n"));
         return release(releaseCommand);
